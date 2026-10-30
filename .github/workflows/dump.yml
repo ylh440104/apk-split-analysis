@@ -1,0 +1,30 @@
+name: dump-csdk
+permissions:
+  contents: write
+on:
+  workflow_dispatch:
+
+jobs:
+  dump:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Reassemble + apktool
+        run: |
+          cat apk_parts/apk.part.* > app.apk
+          curl -sSL -o apktool.jar https://github.com/iBotPeaches/Apktool/releases/download/v3.0.3/apktool_3.0.3.jar
+          java -Xmx4g -jar apktool.jar d -f -s app.apk -o out 2>/dev/null || java -Xmx4g -jar apktool.jar d -f app.apk -o out
+          ls out/smali*/android/app/csdk/ 2>/dev/null | head -50
+          mkdir -p dump
+          for f in out/smali*/android/app/csdk/*.smali out/smali*/android/app/csdk/*/*.smali; do
+            [ -f "$f" ] && cp "$f" dump/$(echo $f | tr '/' '_')
+          done
+          ls -l dump | head -60
+      - name: Commit dump
+        run: |
+          git config user.name ci-bot
+          git config user.email ci-bot@users.noreply.github.com
+          git add -f dump || true
+          git commit -m "ci: csdk dump [skip ci]" || echo no-changes
+          for i in 1 2 3; do git push origin HEAD:main && break; sleep 5; done || echo push-failed
