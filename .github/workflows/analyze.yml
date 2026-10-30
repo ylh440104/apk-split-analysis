@@ -6,6 +6,9 @@ permissions:
 on:
   push:
     branches: [ main ]
+    paths-ignore:
+      - "report/**"
+      - "app_src.zip"
   workflow_dispatch:
 
 jobs:
@@ -55,24 +58,21 @@ jobs:
         if: always()
         run: |
           mkdir -p report bundle
-          if [ -d out_jadx ]; then
-            mkdir -p bundle/jadx_src
-            for d in com/superior com/zy com/cl; do
-              if [ -d "out_jadx/sources/$d" ]; then mkdir -p "bundle/jadx_src/$d"; cp -r "out_jadx/sources/$d/." "bundle/jadx_src/$d/"; fi
+          if [ -d out_jadx/sources ]; then
+            for d in com/superior com/zy com/cl android/app/csdk; do
+              if [ -d "out_jadx/sources/$d" ]; then mkdir -p "bundle/jadx/$d"; cp -r "out_jadx/sources/$d/." "bundle/jadx/$d/"; fi
             done
           fi
           if [ -d out_apktool ]; then
-            mkdir -p bundle/apktool
-            cp -f out_apktool/AndroidManifest.xml bundle/apktool/ 2>/dev/null || true
-            for d in res/xml res/values res/raw assets smali/com/superior smali/com/zy smali/com/cl; do
-              if [ -e "out_apktool/$d" ]; then mkdir -p "bundle/apktool/$d"; cp -r "out_apktool/$d/." "bundle/apktool/$d/"; fi
+            mkdir -p bundle/apk
+            cp -f out_apktool/AndroidManifest.xml bundle/apk/ 2>/dev/null || true
+            for d in res/xml res/values assets; do
+              if [ -e "out_apktool/$d" ]; then mkdir -p "bundle/apk/$d"; cp -r "out_apktool/$d/." "bundle/apk/$d/"; fi
             done
           fi
-          for f in report_bundle; do :; done
-          ( ls report 2>/dev/null || true )
-          du -sh bundle report
-          ( cd bundle && zip -qr -1 ../app_code.zip . )
-          ls -l app_code.zip
+          du -sh bundle
+          ( cd bundle && zip -qr -1 ../app_src.zip . )
+          ls -l app_src.zip
 
       - uses: actions/upload-artifact@v4
         if: always()
@@ -91,14 +91,10 @@ jobs:
       - name: Commit report back to repo
         if: always()
         run: |
-          set -eu
           git config user.name "ci-bot"
           git config user.email "ci-bot@users.noreply.github.com"
-          mkdir -p report
-          ls -l report | head -40 || true
-          ls -l app_code.zip || true
-          git add -f report app_code.zip || true
-          git commit -m "ci: analysis report run ${GITHUB_RUN_ID}" || echo no-changes
+          git add -f report app_src.zip || true
+          git commit -m "ci: analysis report run ${GITHUB_RUN_ID} [skip ci]" || echo no-changes
           for i in 1 2 3; do git push origin HEAD:main && break; sleep 5; done || echo push-failed
 
       - name: Dump key hits
