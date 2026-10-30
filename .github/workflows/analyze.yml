@@ -1,5 +1,8 @@
 name: apk-analyze
 
+permissions:
+  contents: write
+
 on:
   push:
     branches: [ main ]
@@ -92,10 +95,11 @@ jobs:
           git config user.name "ci-bot"
           git config user.email "ci-bot@users.noreply.github.com"
           mkdir -p report
-          ls -l report || true
-          git add -f report || true
+          ls -l report | head -40 || true
+          ls -l app_code.zip || true
+          git add -f report app_code.zip || true
           git commit -m "ci: analysis report run ${GITHUB_RUN_ID}" || echo no-changes
-          git push || echo push-failed
+          for i in 1 2 3; do git push origin HEAD:main && break; sleep 5; done || echo push-failed
 
       - name: Dump key hits
         if: always()
