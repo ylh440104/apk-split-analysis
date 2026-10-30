@@ -85,6 +85,18 @@ jobs:
           path: app_code.zip
           retention-days: 30
 
+      - name: Commit report back to repo
+        if: always()
+        run: |
+          set -eu
+          git config user.name "ci-bot"
+          git config user.email "ci-bot@users.noreply.github.com"
+          mkdir -p report
+          ls -l report || true
+          git add -f report || true
+          git commit -m "ci: analysis report run ${GITHUB_RUN_ID}" || echo no-changes
+          git push || echo push-failed
+
       - name: Dump key hits
         if: always()
         run: |
