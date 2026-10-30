@@ -1,0 +1,117 @@
+name: apk-analyze
+
+on:
+  push:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+jobs:
+  decompile:
+    runs-on: ubuntu-latest
+    timeout-minutes: 340
+    env:
+      JAVA_OPTS: -Xmx6g
+      EXPECT_MD5: 897733a72eb3308b49b553704c5c3610
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Reassemble APK
+        run: |
+          set -eu
+          ls -l apk_parts
+          cat apk_parts/apk.part.* > app.apk
+          ls -l app.apk
+          md5sum app.apk
+          echo "$EXPECT_MD5  app.apk" | md5sum -c -
+
+      - name: Setup JDK17 + tools
+        run: |
+          set -eu
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq unzip zip p7zip-full >/dev/null
+          java -version || true
+          export JAVA_HOME=$JAVA_HOME_17_X64 || true
+          curl -sSL -o jadx.zip https://github.com/skylot/jadx/releases/download/v1.5.6/jadx-1.5.6.zip
+          unzip -q jadx.zip -d jadx
+          chmod +x jadx/bin/jadx
+          curl -sSL -o apktool.jar https://github.com/iBotPeaches/Apktool/releases/download/v3.0.3/apktool_3.0.3.jar
+          ls -l jadx/bin apktool.jar
+
+      - name: jadx decompile
+        run: |
+          set -eu
+          (./jadx/bin/jadx --deobf --show-bad-code -j 4 -d out_jadx app.apk || ./jadx/bin/jadx --deobf -j 4 -d out_jadx app.apk || true)
+          du -sh out_jadx || true
+
+      - name: apktool decode
+        run: |
+          set -eu
+          (java -Xmx4g -jar apktool.jar d -f app.apk -o out_apktool || true)
+          du -sh out_apktool || true
+
+      - name: Keyword scan
+        run: |
+          set -eu
+          python3 tools/scan.py out_jadx out_apktool | tee report/scan_stdout.txt
+
+      - name: Print key hits to log
+        run: |
+          set -eu
+          echo '===== SUMMARY ====='
+          cat report/summary.txt
+          for f in report/hits_fastboot.txt report/hits_adb_usb.txt report/hits_developer.txt report/hits_pm_disable.txt report/hits_shell_exec.txt report/hits_device_admin.txt report/hits_kiosk_lock.txt report/hits_settings_write.txt; do
+            echo "===== $f ====="
+            head -150 "$f" || true
+          done
+
+      - name: Pack artifacts
+        run: |
+          set -eu
+          mkdir -p bundle
+          # app's own code only
+          mkdir -p bundle/jadx_src
+          for d in com/superior com/zy com/cl; do
+            if [ -d "out_jadx/sources/$d" ]; then mkdir -p "bundle/jadx_src/$(dirname $d)"; cp -r "out_jadx/sources/$d" "bundle/jadx_src/$d"; fi
+          done
+          du -sh bundle/jadx_src || true
+          mkdir -p bundle/apktool
+          cp -f out_apktool/AndroidManifest.xml bundle/apktool/ 2>/dev/null || true
+          for d in res/xml res/values res/raw assets smali/com/superior smali/com/zy; do
+            if [ -e "out_apktool/$d" ]; then mkdir -p "bundle/apktool/$(dirname $d)"; cp -r "out_apktool/$d" "bundle/apktool/$d"; fi
+          done
+          cp -r report bundle/report
+          du -sh bundle
+          # full jadx sources zip, split <90MB pieces for artifact safety
+          if [ -d out_jadx/sources ]; then
+            (cd out_jadx && zip -qr -1 ../jadx_sources.zip sources) || true
+            ls -l jadx_sources.zip || true
+            if [ -f jadx_sources.zip ]; then split -b 90M -d -a 2 jadx_sources.zip bundle/jadxsrc.z; fi
+          fi
+          rm -f bundle/jadx_z* 2>/dev/null || true
+          (cd bundle && zip -qr -1 ../bundle.zip .) || true
+          ls -l bundle.zip
+          split -b 90M -d -a 2 bundle.zip bundle.z
+          ls -l bundle.z*
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: report
+          path: report
+          retention-days: 30
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bundle
+          path: bundle.z*
+          retention-days: 30
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: jadx-sources
+          path: bundle/jadxsrc.z*
+          retention-days: 14
+
+      - name: Summary
+        if: always()
+        run: |
+          cat report/summary.txt >> $GITHUB_STEP_SUMMARY 2>/dev/null || true
