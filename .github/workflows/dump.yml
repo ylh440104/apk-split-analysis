@@ -7,19 +7,19 @@ on:
 jobs:
   dump:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
-      - name: Reassemble + apktool
+      - name: Reassemble + apktool (full smali)
         run: |
           cat apk_parts/apk.part.* > app.apk
           curl -sSL -o apktool.jar https://github.com/iBotPeaches/Apktool/releases/download/v3.0.3/apktool_3.0.3.jar
-          java -Xmx4g -jar apktool.jar d -f -s app.apk -o out 2>/dev/null || java -Xmx4g -jar apktool.jar d -f app.apk -o out
-          ls out/smali*/android/app/csdk/ 2>/dev/null | head -50
+          java -Xmx5g -jar apktool.jar d -f app.apk -o out
+          echo '--- csdk classes:'
+          find out -path '*android/app/csdk*' -name '*.smali' | head -40
           mkdir -p dump
-          for f in out/smali*/android/app/csdk/*.smali out/smali*/android/app/csdk/*/*.smali; do
-            [ -f "$f" ] && cp "$f" dump/$(echo $f | tr '/' '_')
-          done
+          find out -path '*android/app/csdk*' -name '*.smali' -exec cp {} dump/ \;
+          echo '--- dump:'
           ls -l dump | head -60
       - name: Commit dump
         run: |
